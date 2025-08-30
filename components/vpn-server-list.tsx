@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, Wifi, WifiOff } from "lucide-react"
+import { Download, Wifi, WifiOff, RefreshCw } from "lucide-react"
 
 interface VpnServer {
   id: string
@@ -16,81 +16,145 @@ interface VpnServer {
   load: number
 }
 
-const servers: VpnServer[] = [
-  {
-    id: "fi-1",
-    country: "Finland",
-    flag: "🇫🇮",
-    city: "Helsinki",
-    status: "online",
-    ping: 45,
-    load: 23,
-  },
-  {
-    id: "hk-1",
-    country: "Hong Kong",
-    flag: "🇭🇰",
-    city: "Central",
-    status: "online",
-    ping: 120,
-    load: 67,
-  },
-  {
-    id: "de-1",
-    country: "Germany",
-    flag: "🇩🇪",
-    city: "Frankfurt",
-    status: "online",
-    ping: 32,
-    load: 45,
-  },
-  {
-    id: "ru-1",
-    country: "Russia",
-    flag: "🇷🇺",
-    city: "Moscow",
-    status: "offline",
-    ping: 89,
-    load: 0,
-  },
-]
-
 export function VpnServerList() {
+  const [servers, setServers] = useState<VpnServer[]>([])
   const [downloading, setDownloading] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchServers = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      console.log("[v0] Fetching server data...")
+      const response = await fetch("/api/servers")
+      const data = await response.json()
+
+      if (data.success) {
+        setServers(data.servers)
+        console.log(`[v0] Loaded ${data.servers.length} servers`)
+      } else {
+        throw new Error("Failed to fetch server data")
+      }
+    } catch (err) {
+      console.error("Error fetching servers:", err)
+      setError("Backend server unavailable - showing offline status")
+
+      // Fallback to static data
+      setServers([
+        {
+          id: "fi-1",
+          country: "Finland",
+          flag: "🇫🇮",
+          city: "Helsinki",
+          status: "offline",
+          ping: 0,
+          load: 0,
+        },
+        {
+          id: "hk-1",
+          country: "Hong Kong",
+          flag: "🇭🇰",
+          city: "Central",
+          status: "offline",
+          ping: 0,
+          load: 0,
+        },
+        {
+          id: "de-1",
+          country: "Germany",
+          flag: "🇩🇪",
+          city: "Frankfurt",
+          status: "offline",
+          ping: 0,
+          load: 0,
+        },
+        {
+          id: "ru-1",
+          country: "Russia",
+          flag: "🇷🇺",
+          city: "Moscow",
+          status: "offline",
+          ping: 0,
+          load: 0,
+        },
+      ])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchServers()
+
+    // Refresh server status every 60 seconds
+    const interval = setInterval(fetchServers, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleDownload = async (serverId: string, country: string) => {
     setDownloading(serverId)
 
-    // Simulate download process
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try {
+      console.log(`[v0] Requesting config for ${serverId}`)
+      const response = await fetch(`/api/config/${serverId}`, {
+        method: "POST",
+      })
 
-    // Create and download the config file
-    const configContent = `[Interface]
-PrivateKey = YOUR_PRIVATE_KEY
-Address = 10.0.0.2/32
-DNS = 1.1.1.1
+      const data = await response.json()
 
-[Peer]
-PublicKey = SERVER_PUBLIC_KEY_${serverId.toUpperCase()}
-Endpoint = ${serverId}.vpn.example.com:51820
-AllowedIPs = 0.0.0.0/0
-PersistentKeepalive = 25`
+      if (!data.success) {
+        throw new Error(data.error || "Failed to generate config")
+      }
 
-    const blob = new Blob([configContent], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${country.toLowerCase()}-${serverId}.conf`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+      console.log(`[v0] Config generated successfully for ${serverId}`)
 
-    setDownloading(null)
+      // Create and download the config file
+      const blob = new Blob([data.config], { type: "text/plain" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = data.filename || `${country.toLowerCase()}-${serverId}.conf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Download error:", err)
+      alert(`Failed to download config: ${err.message}`)
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          Loading servers...
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-4">
+      {error && (
+        <Card className="border-destructive/50 bg-destructive/10">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button onClick={fetchServers} variant="outline" size="sm" className="h-8 bg-transparent">
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {servers.map((server) => (
         <Card key={server.id} className="border-border bg-card">
           <CardContent className="p-4">
