@@ -6,9 +6,11 @@ import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
 import "./globals.css"
 
+import { MiniKitProvider } from "@/components/minikit-provider"
+
 export const metadata: Metadata = {
-  title: "v0 App",
-  description: "Created with v0",
+  title: "SimplyVPN",
+  description: "VPN Service",
   generator: "v0.app",
 }
 
@@ -21,8 +23,10 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <Suspense fallback={<div>Loading...</div>}>
-          {children}
-          <Analytics />
+          <MiniKitProvider>
+            {children}
+            <Analytics />
+          </MiniKitProvider>
         </Suspense>
       </body>
     </html>
