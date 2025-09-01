@@ -1,47 +1,74 @@
 "use client";
 
-import { useMiniKit } from "@worldcoin/minikit-react";
+import { MiniKit, Tokens, tokenToDecimals } from "@worldcoin/minikit-js";
 
 export default function PayPage() {
-  const { commandsAsync } = useMiniKit();
-
   const handlePay = async () => {
     try {
-      // pede ao backend para iniciar pagamento
+      const token = localStorage.getItem("simplyvpn_token");
+      if (!token) {
+        alert("Sessão inválida. Verifica e liga a carteira primeiro.");
+        location.assign("/verify");
+        return;
+      }
+
+      const amountStr =
+        (process.env.NEXT_PUBLIC_PRICE_USDC as string) || "10";
+
+      // inicia ordem no backend (opcional, para referência de pedido/price)
       const initRes = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE}/billing/initiate`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ amount: amountStr, token: "USDC" }),
+        }
       );
-      const { amount } = await initRes.json();
+      if (!initRes.ok) throw new Error("Falhou a iniciar pagamento");
+      const { id } = await initRes.json();
 
-      const result = await commandsAsync.pay({
+      // abre UI de pagamento no World App
+      const { finalPayload } = await MiniKit.commandsAsync.pay({
+        reference: id, // referência opcional, útil para conciliação
         to: process.env.NEXT_PUBLIC_MERCHANT_WALLET!,
         tokens: [
           {
-            id: "usdc",
-            amount: amount || process.env.NEXT_PUBLIC_PRICE_USDC || "10",
+            symbol: Tokens.USDC,
+            token_amount: tokenToDecimals(Number(amountStr), Tokens.USDC).toString(),
           },
         ],
+        description: `SimplyVPN access - ${id}`,
       });
 
-      console.log("Pagamento enviado:", result);
-
+      // envia txHash ao backend para validação on-chain
       await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/payments/confirm`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result),
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          reference: id,
+          token: "USDC",
+          txHash: (finalPayload as any)?.txHash || (finalPayload as any)?.transactionHash,
+        }),
       });
 
-      alert("Pagamento concluído!");
+      alert("✅ Pagamento enviado! A subscrição será ativada após confirmação.");
+      location.assign("/servers"); // quando implementares esta página
     } catch (err) {
-      console.error("Erro no pagamento:", err);
-      alert("Falhou o pagamento.");
+      console.error(err);
+      alert("Erro no pagamento.");
     }
   };
 
   return (
     <main className="flex flex-col items-center justify-center p-6">
       <h1 className="text-2xl font-bold mb-4">Pagamento</h1>
+      <p className="mb-2">Plano: <b>{process.env.NEXT_PUBLIC_PRICE_USDC || "10"} USDC</b></p>
       <button
         onClick={handlePay}
         className="px-4 py-2 bg-blue-600 text-white rounded-lg"

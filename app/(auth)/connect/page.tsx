@@ -1,28 +1,52 @@
 "use client";
 
-import { useMiniKit } from "@worldcoin/minikit-react";
+import { MiniKit } from "@worldcoin/minikit-js";
 
 export default function ConnectPage() {
-  const { commandsAsync } = useMiniKit();
-
   const handleConnect = async () => {
     try {
-      const result = await commandsAsync.walletAuth({
-        statement: "Ligação de carteira ao SimplyVPN",
+      const token = localStorage.getItem("simplyvpn_token");
+      const nonce = localStorage.getItem("simplyvpn_nonce");
+      if (!token || !nonce) {
+        alert("Sessão inválida. Verifica com World ID primeiro.");
+        location.assign("/verify");
+        return;
+      }
+
+      // walletAuth (SIWE-like) com nonce gerado no backend
+      const { finalPayload } = await MiniKit.commandsAsync.walletAuth({
+        nonce,
+        statement: "Ligar carteira ao SimplyVPN",
       });
 
-      console.log("Wallet connected:", result);
+      if (!finalPayload) {
+        alert("Ligação da carteira não concluída.");
+        return;
+      }
 
-      await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/auth/link-wallet`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result),
-      });
+      const r = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE}/auth/link-wallet`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ walletAuthPayload: finalPayload }),
+        }
+      );
 
-      alert("Carteira ligada com sucesso!");
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        alert("Falha ao ligar carteira: " + (e?.error || r.status));
+        return;
+      }
+
+      alert("✅ Carteira ligada!");
+      location.assign("/pay");
     } catch (err) {
-      console.error("Erro na ligação da carteira:", err);
-      alert("Falhou a ligação da carteira.");
+      console.error(err);
+      alert("Erro a ligar carteira.");
     }
   };
 
