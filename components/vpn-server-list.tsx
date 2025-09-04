@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Download, Wifi, WifiOff } from "lucide-react"
+import { Download, Wifi, WifiOff, AlertCircle } from "lucide-react"
 
 interface VpnServer {
   id: string
@@ -36,68 +36,49 @@ const DEMO_SERVERS: VpnServer[] = [
     load: 67,
   },
   {
-    id: "de-1",
-    country: "Germany",
-    flag: "🇩🇪",
-    city: "Frankfurt",
-    status: "online",
-    ping: 32,
-    load: 41,
-  },
-  {
     id: "ru-1",
     country: "Russia",
     flag: "🇷🇺",
     city: "Moscow",
-    status: "offline",
-    ping: 0,
-    load: 0,
+    status: "online",
+    ping: 52,
+    load: 34,
   },
 ]
 
 export function VpnServerList() {
   const [servers] = useState<VpnServer[]>(DEMO_SERVERS)
   const [downloading, setDownloading] = useState<string | null>(null)
-
-  const generateDemoConfig = (server: VpnServer) => {
-    return `[Interface]
-PrivateKey = ${generateRandomKey()}
-Address = 10.0.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 254) + 2}/32
-DNS = 1.1.1.1, 8.8.8.8
-
-[Peer]
-PublicKey = ${generateRandomKey()}
-Endpoint = ${server.city.toLowerCase()}.vpn.example.com:51820
-AllowedIPs = 0.0.0.0/0
-PersistentKeepalive = 25
-
-# Generated for ${server.country} - ${server.city}
-# Server ID: ${server.id}
-# Status: Demo configuration`
-  }
-
-  const generateRandomKey = () => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    let result = ""
-    for (let i = 0; i < 44; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
-    return result
-  }
+  const [error, setError] = useState<string | null>(null)
 
   const handleDownload = async (serverId: string, country: string) => {
     setDownloading(serverId)
+    setError(null)
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      console.log("[v0] Making internal API request for server:", serverId)
 
-      const server = servers.find((s) => s.id === serverId)
-      if (!server) throw new Error("Server not found")
+      const response = await fetch("/api/generate-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ serverId }),
+      })
 
-      const config = generateDemoConfig(server)
-      const filename = `${country.toLowerCase()}-${serverId}.conf`
+      console.log("[v0] Internal API response status:", response.status)
 
-      // Create and download the config file
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.log("[v0] Internal API error:", errorData)
+        throw new Error(errorData.error || `Server error: ${response.status}`)
+      }
+
+      const config = await response.text()
+      console.log("[v0] Received config length:", config.length)
+
+      const filename = `simply-vpn-${serverId}.conf`
+
       const blob = new Blob([config], { type: "text/plain" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -107,9 +88,12 @@ PersistentKeepalive = 25
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+
+      console.log("[v0] Config downloaded successfully as:", filename)
     } catch (err) {
-      console.error("Download error:", err)
-      alert(`Failed to download config: ${err instanceof Error ? err.message : "Unknown error"}`)
+      console.error("[v0] Download error:", err)
+      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred"
+      setError(`Failed to generate config: ${errorMessage}`)
     } finally {
       setDownloading(null)
     }
@@ -117,6 +101,13 @@ PersistentKeepalive = 25
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
       {servers.map((server) => (
         <Card key={server.id} className="border-border bg-card">
           <CardContent className="p-4">
@@ -156,7 +147,7 @@ PersistentKeepalive = 25
               {downloading === server.id ? (
                 <div className="flex items-center gap-2">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Downloading...
+                  Generating…
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
