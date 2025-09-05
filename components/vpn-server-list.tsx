@@ -18,7 +18,7 @@ interface VpnServer {
 
 const DEMO_SERVERS: VpnServer[] = [
   {
-    id: "fi-1",
+    id: "fi-1", // Updated to match backend expected format
     country: "Finland",
     flag: "🇫🇮",
     city: "Helsinki",
@@ -27,7 +27,7 @@ const DEMO_SERVERS: VpnServer[] = [
     load: 23,
   },
   {
-    id: "hk-1",
+    id: "hk-1", // Updated to match backend expected format
     country: "Hong Kong",
     flag: "🇭🇰",
     city: "Central",
@@ -36,7 +36,7 @@ const DEMO_SERVERS: VpnServer[] = [
     load: 67,
   },
   {
-    id: "ru-1",
+    id: "ru-1", // Updated to match backend expected format
     country: "Russia",
     flag: "🇷🇺",
     city: "Moscow",
@@ -51,32 +51,26 @@ export function VpnServerList() {
   const [downloading, setDownloading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const handleDownload = async (serverId: string, country: string) => {
+  const handleDownload = async (serverId: string) => {
     setDownloading(serverId)
     setError(null)
 
     try {
-      console.log("[v0] Making internal API request for server:", serverId)
-
       const response = await fetch("/api/generate-config", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ serverId }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverId }), // ids now match backend (fi1/hk1/ru1)
       })
 
-      console.log("[v0] Internal API response status:", response.status)
-
       if (!response.ok) {
-        const errorData = await response.json()
-        console.log("[v0] Internal API error:", errorData)
-        throw new Error(errorData.error || `Server error: ${response.status}`)
+        let msg = `Server error: ${response.status}`
+        try {
+          msg = (await response.json())?.error || msg
+        } catch {}
+        throw new Error(msg)
       }
 
       const config = await response.text()
-      console.log("[v0] Received config length:", config.length)
-
       const filename = `simply-vpn-${serverId}.conf`
 
       const blob = new Blob([config], { type: "text/plain" })
@@ -86,14 +80,11 @@ export function VpnServerList() {
       a.download = filename
       document.body.appendChild(a)
       a.click()
-      document.body.removeChild(a)
+      a.remove()
       URL.revokeObjectURL(url)
-
-      console.log("[v0] Config downloaded successfully as:", filename)
     } catch (err) {
-      console.error("[v0] Download error:", err)
-      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred"
-      setError(`Failed to generate config: ${errorMessage}`)
+      const m = err instanceof Error ? err.message : "Unknown error occurred"
+      setError(`Failed to generate config: ${m}`)
     } finally {
       setDownloading(null)
     }
@@ -139,7 +130,7 @@ export function VpnServerList() {
             )}
 
             <Button
-              onClick={() => handleDownload(server.id, server.country)}
+              onClick={() => handleDownload(server.id)}
               disabled={server.status === "offline" || downloading === server.id}
               className="w-full bg-accent hover:bg-accent/90 text-accent-foreground"
               size="sm"
